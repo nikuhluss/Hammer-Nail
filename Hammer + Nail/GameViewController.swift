@@ -12,24 +12,34 @@ class GameViewController: UIViewController {
     // Game state
     var nailsHammered = 0 {
         didSet {
-            // Update UI on the main thread
             DispatchQueue.main.async {
                 self.nailsLabel.text = "Nails Hammered: \(self.nailsHammered)"
             }
         }
     }
 
-    // UI
+    // UI Elements
     var nailsLabel: UILabel!
-    // tapToHammerLabel is no longer needed as the button itself guides the user
-    // var tapToHammerLabel: UILabel!
     var hammerButton: UIButton!
     var autoHammerTimer: Timer?
     var isAutoHammering = false
+    
+    // Menu Elements
+    var menuButton: UIButton!
+    var menuView: UIView!
+    var isMenuOpen = false
 
     // Animation Keys
     let hammerAnimationKey = "hammerSwingAnimation"
     let nailAnimationKey = "nailBounceAnimation"
+
+    var overlayView: UIView!
+    
+    var customizationView: UIView!
+    var colorOptions: [UIColor] = [.red, .blue, .green, .yellow, .purple, .orange]
+    var currentColorIndex = 0
+    var selectedPart: SCNNode? // Will store either hammer head or handle
+    var previewNode: SCNNode? // For displaying the spinning preview
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -41,64 +51,57 @@ class GameViewController: UIViewController {
         createNail()
         setupUI()
         setupHammerButton()
+        setupMenuButton()
     }
 
     // MARK: - Setup Methods
 
     func setupView() {
         scnView = self.view as? SCNView
-        scnView.showsStatistics = false // Disable for production
+        scnView.showsStatistics = false
         scnView.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
-
-        // No need for a separate tap gesture on the view if using the button
-        //let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        //scnView.addGestureRecognizer(tapGesture)
+        scnView.allowsCameraControl = false
     }
 
     func setupScene() {
         scnScene = SCNScene()
         scnView.scene = scnScene
-        // Disable camera control if you want a fixed view
-        scnView.allowsCameraControl = false // Changed to false for fixed view
     }
 
     func setupCamera() {
         let cameraNode = SCNNode()
         cameraNode.camera = SCNCamera()
-        // Adjusted position for a potentially better view
-        cameraNode.position = SCNVector3(x: 0, y: 1, z: 8) // Slightly higher, closer
-        // Keep side view if desired
-        cameraNode.eulerAngles = SCNVector3(x: -0.1, y: 0, z: 0) // Slight downward angle
+        cameraNode.position = SCNVector3(x: 0, y: 1, z: 8)
+        cameraNode.eulerAngles = SCNVector3(x: -0.1, y: 0, z: 0)
         scnScene.rootNode.addChildNode(cameraNode)
     }
 
     func setupLights() {
-        // Key light (more directional)
         let keyLight = SCNNode()
         keyLight.light = SCNLight()
         keyLight.light?.type = .directional
         keyLight.light?.color = UIColor.white
-        keyLight.light?.intensity = 1000 // Default is 1000
-        keyLight.light?.castsShadow = true // Enable shadows for realism
+        keyLight.light?.intensity = 1000
+        keyLight.light?.castsShadow = true
         keyLight.position = SCNVector3(x: -5, y: 5, z: 5)
         keyLight.eulerAngles = SCNVector3(x: -.pi / 3, y: -.pi / 4, z: 0)
         scnScene.rootNode.addChildNode(keyLight)
 
-        // Fill light (softer ambient)
         let fillLight = SCNNode()
         fillLight.light = SCNLight()
         fillLight.light?.type = .ambient
-        fillLight.light?.color = UIColor(white: 0.5, alpha: 1.0) // Slightly brighter ambient
+        fillLight.light?.color = UIColor(white: 0.5, alpha: 1.0)
         fillLight.light?.intensity = 400
         scnScene.rootNode.addChildNode(fillLight)
     }
 
     // MARK: - Button Setup
+    
     func setupHammerButton() {
         hammerButton = UIButton(type: .system)
         hammerButton.setTitle("🔨 HAMMER", for: .normal)
         hammerButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .bold)
-        hammerButton.setTitleColor(.white, for: .normal) // White text
+        hammerButton.setTitleColor(.white, for: .normal)
         hammerButton.backgroundColor = UIColor.systemOrange
         hammerButton.layer.cornerRadius = 10
         hammerButton.layer.shadowColor = UIColor.black.cgColor
@@ -107,43 +110,171 @@ class GameViewController: UIViewController {
         hammerButton.layer.shadowOpacity = 0.3
         hammerButton.translatesAutoresizingMaskIntoConstraints = false
 
-        // Use touchDown for immediate response, allowing faster repeats
         hammerButton.addTarget(self, action: #selector(hammerButtonTapped), for: .touchDown)
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
-        longPress.minimumPressDuration = 0.3 // Keep long press for auto-hammer
+        longPress.minimumPressDuration = 0.3
         hammerButton.addGestureRecognizer(longPress)
 
         view.addSubview(hammerButton)
 
         NSLayoutConstraint.activate([
-            hammerButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -40), // More space
+            hammerButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
             hammerButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            hammerButton.widthAnchor.constraint(equalToConstant: 220), // Slightly wider
-            hammerButton.heightAnchor.constraint(equalToConstant: 65) // Slightly taller
+            hammerButton.widthAnchor.constraint(equalToConstant: 220),
+            hammerButton.heightAnchor.constraint(equalToConstant: 65)
+        ])
+    }
+    
+    func setupMenuButton() {
+        // Menu button in top-right corner
+        menuButton = UIButton(type: .system)
+        menuButton.setImage(UIImage(systemName: "line.horizontal.3"), for: .normal)
+        menuButton.tintColor = .black
+        menuButton.addTarget(self, action: #selector(toggleMenu), for: .touchUpInside)
+        menuButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(menuButton)
+        
+        // Overlay view to block interactions when menu is open
+        overlayView = UIView()
+        overlayView.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        overlayView.isHidden = true
+        overlayView.alpha = 0
+        overlayView.translatesAutoresizingMaskIntoConstraints = false
+        let tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(toggleMenu))
+        overlayView.addGestureRecognizer(tapRecognizer)
+        view.addSubview(overlayView)
+        
+        // Menu view (hidden by default)
+        menuView = UIView()
+        menuView.backgroundColor = UIColor(white: 0.95, alpha: 1)
+        menuView.layer.cornerRadius = 15
+        menuView.layer.shadowOpacity = 0.3
+        menuView.layer.shadowRadius = 10
+        menuView.layer.shadowOffset = CGSize(width: 0, height: 5)
+        menuView.isHidden = true
+        menuView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(menuView)
+        
+        // Menu options
+        let options = ["Settings", "Customize", "Share", "Shop"]
+        var previousButton: UIButton?
+        
+        // Create menu title
+        let titleLabel = UILabel()
+        titleLabel.text = "Menu"
+        titleLabel.font = UIFont.systemFont(ofSize: 20, weight: .bold)
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        menuView.addSubview(titleLabel)
+        
+        for (index, option) in options.enumerated() {
+            let button = UIButton(type: .system)
+            button.setTitle(option, for: .normal)
+            button.setTitleColor(.black, for: .normal)
+            button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+            button.tag = index
+            button.addTarget(self, action: #selector(menuOptionSelected(_:)), for: .touchUpInside)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            menuView.addSubview(button)
+            
+            NSLayoutConstraint.activate([
+                button.leadingAnchor.constraint(equalTo: menuView.leadingAnchor, constant: 16),
+                button.trailingAnchor.constraint(equalTo: menuView.trailingAnchor, constant: -16),
+                button.heightAnchor.constraint(equalToConstant: 50)
+            ])
+            
+            if let previous = previousButton {
+                button.topAnchor.constraint(equalTo: previous.bottomAnchor).isActive = true
+            } else {
+                button.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10).isActive = true
+            }
+            
+            // Add separator except for last item
+            if index < options.count - 1 {
+                let separator = UIView()
+                separator.backgroundColor = UIColor.lightGray.withAlphaComponent(0.3)
+                separator.translatesAutoresizingMaskIntoConstraints = false
+                menuView.addSubview(separator)
+                
+                NSLayoutConstraint.activate([
+                    separator.leadingAnchor.constraint(equalTo: menuView.leadingAnchor, constant: 16),
+                    separator.trailingAnchor.constraint(equalTo: menuView.trailingAnchor, constant: -16),
+                    separator.topAnchor.constraint(equalTo: button.bottomAnchor),
+                    separator.heightAnchor.constraint(equalToConstant: 1)
+                ])
+            }
+            
+            previousButton = button
+        }
+        
+        // Add Close button at the bottom
+        let closeButton = UIButton(type: .system)
+        closeButton.setTitle("Close", for: .normal)
+        closeButton.setTitleColor(.systemRed, for: .normal)
+        closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        closeButton.addTarget(self, action: #selector(toggleMenu), for: .touchUpInside)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        menuView.addSubview(closeButton)
+        
+        // Add separator above close button
+        let closeSeparator = UIView()
+        closeSeparator.backgroundColor = UIColor.lightGray.withAlphaComponent(0.3)
+        closeSeparator.translatesAutoresizingMaskIntoConstraints = false
+        menuView.addSubview(closeSeparator)
+        
+        // Set constraints for menu view
+        NSLayoutConstraint.activate([
+            // Overlay view covers entire screen
+            overlayView.topAnchor.constraint(equalTo: view.topAnchor),
+            overlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            overlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            overlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            
+            // Menu button in top-right
+            menuButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            menuButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            menuButton.widthAnchor.constraint(equalToConstant: 44),
+            menuButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            // Menu view centered
+            menuView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            menuView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            menuView.widthAnchor.constraint(equalToConstant: 280),
+            
+            // Menu title
+            titleLabel.topAnchor.constraint(equalTo: menuView.topAnchor, constant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: menuView.leadingAnchor),
+            titleLabel.trailingAnchor.constraint(equalTo: menuView.trailingAnchor),
+            
+            // Close button and separator
+            closeSeparator.topAnchor.constraint(equalTo: previousButton!.bottomAnchor, constant: 10),
+            closeSeparator.leadingAnchor.constraint(equalTo: menuView.leadingAnchor),
+            closeSeparator.trailingAnchor.constraint(equalTo: menuView.trailingAnchor),
+            closeSeparator.heightAnchor.constraint(equalToConstant: 1),
+            
+            closeButton.topAnchor.constraint(equalTo: closeSeparator.bottomAnchor, constant: 10),
+            closeButton.leadingAnchor.constraint(equalTo: menuView.leadingAnchor),
+            closeButton.trailingAnchor.constraint(equalTo: menuView.trailingAnchor),
+            closeButton.heightAnchor.constraint(equalToConstant: 50),
+            closeButton.bottomAnchor.constraint(equalTo: menuView.bottomAnchor, constant: -20)
         ])
     }
 
     // MARK: - Button Actions
 
     @objc func hammerButtonTapped() {
-        // Trigger hammer action immediately on touch down
         hammerAction()
     }
 
-    // *** MODIFIED hammerAction ***
     func hammerAction() {
-        // 1. Increment count IMMEDIATELY
         nailsHammered += 1
-
-        // 2. Trigger the animation (which will handle interrupting previous ones)
         animateHammerSwing()
     }
 
     @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
         case .began:
-            // Only start auto-hammering if not already doing so
             if !isAutoHammering {
                 startAutoHammering()
             }
@@ -157,13 +288,9 @@ class GameViewController: UIViewController {
     func startAutoHammering() {
         guard !isAutoHammering else { return }
         isAutoHammering = true
-        hammerButton.backgroundColor = UIColor.systemRed // Indicate active auto-hammer
-
-        // Hammer immediately on press start
+        hammerButton.backgroundColor = UIColor.systemRed
+        
         hammerAction()
-
-        // Then continue hammering at intervals
-        // Adjust time interval for desired auto-hammer speed
         autoHammerTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             self?.hammerAction()
         }
@@ -173,179 +300,386 @@ class GameViewController: UIViewController {
         autoHammerTimer?.invalidate()
         autoHammerTimer = nil
         isAutoHammering = false
-        hammerButton.backgroundColor = UIColor.systemOrange // Restore original color
+        hammerButton.backgroundColor = UIColor.systemOrange
+    }
+    
+    // MARK: - Menu Actions (Updated)
+    
+    @objc func toggleMenu() {
+        isMenuOpen.toggle()
+        
+        if isMenuOpen {
+            // Disable other buttons
+            hammerButton.isUserInteractionEnabled = false
+            menuButton.isUserInteractionEnabled = false
+            
+            // Show overlay and menu
+            overlayView.isHidden = false
+            menuView.isHidden = false
+            menuView.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+            
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: [], animations: {
+                self.overlayView.alpha = 1
+                self.menuView.transform = .identity
+                self.menuButton.transform = CGAffineTransform(rotationAngle: .pi/2)
+            })
+        } else {
+            UIView.animate(withDuration: 0.2, animations: {
+                self.overlayView.alpha = 0
+                self.menuView.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+                self.menuButton.transform = .identity
+            }) { _ in
+                self.overlayView.isHidden = true
+                self.menuView.isHidden = true
+                
+                // Re-enable buttons
+                self.hammerButton.isUserInteractionEnabled = true
+                self.menuButton.isUserInteractionEnabled = true
+            }
+        }
+    }
+    
+    @objc func menuOptionSelected(_ sender: UIButton) {
+        toggleMenu()
+        
+        // Add a slight delay to allow menu to close before showing next screen
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            switch sender.tag {
+            case 0: // Settings
+                print("Settings selected")
+            case 1: // Customize
+                self.showCustomizationScreen()
+            case 2: // Share
+                print("Share selected")
+            case 3: // Shop
+                print("Shop selected")
+            default:
+                break
+            }
+        }
+    }
+    
+    func showCustomizationScreen() {
+        toggleMenu() // Close the menu first
+        
+        // Create customization view
+        customizationView = UIView()
+        customizationView.backgroundColor = UIColor(white: 0.95, alpha: 1)
+        customizationView.layer.cornerRadius = 15
+        customizationView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(customizationView)
+        
+        // Back button
+        let backButton = UIButton(type: .system)
+        backButton.setTitle("Back", for: .normal)
+        backButton.setTitleColor(.systemBlue, for: .normal)
+        backButton.addTarget(self, action: #selector(hideCustomizationScreen), for: .touchUpInside)
+        backButton.translatesAutoresizingMaskIntoConstraints = false
+        customizationView.addSubview(backButton)
+        
+        // Title
+        let titleLabel = UILabel()
+        titleLabel.text = "Customize Hammer"
+        titleLabel.font = UIFont.systemFont(ofSize: 20, weight: .bold)
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        customizationView.addSubview(titleLabel)
+        
+        // Part selection buttons
+        let headButton = createPartButton(title: "Hammer Head")
+        headButton.addTarget(self, action: #selector(selectHammerHead), for: .touchUpInside)
+        customizationView.addSubview(headButton)
+        
+        let handleButton = createPartButton(title: "Handle")
+        handleButton.addTarget(self, action: #selector(selectHandle), for: .touchUpInside)
+        customizationView.addSubview(handleButton)
+        
+        // Preview container
+        let previewContainer = UIView()
+        previewContainer.backgroundColor = UIColor(white: 0.85, alpha: 1)
+        previewContainer.layer.cornerRadius = 10
+        previewContainer.translatesAutoresizingMaskIntoConstraints = false
+        customizationView.addSubview(previewContainer)
+        
+        // Color carousel controls
+        let prevColorButton = UIButton(type: .system)
+        prevColorButton.setTitle("<", for: .normal)
+        prevColorButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        prevColorButton.addTarget(self, action: #selector(previousColor), for: .touchUpInside)
+        prevColorButton.translatesAutoresizingMaskIntoConstraints = false
+        customizationView.addSubview(prevColorButton)
+        
+        let nextColorButton = UIButton(type: .system)
+        nextColorButton.setTitle(">", for: .normal)
+        nextColorButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        nextColorButton.addTarget(self, action: #selector(nextColor), for: .touchUpInside)
+        nextColorButton.translatesAutoresizingMaskIntoConstraints = false
+        customizationView.addSubview(nextColorButton)
+        
+        // Save button
+        let saveButton = UIButton(type: .system)
+        saveButton.setTitle("Save", for: .normal)
+        saveButton.setTitleColor(.white, for: .normal)
+        saveButton.backgroundColor = .systemGreen
+        saveButton.layer.cornerRadius = 10
+        saveButton.addTarget(self, action: #selector(saveCustomization), for: .touchUpInside)
+        saveButton.translatesAutoresizingMaskIntoConstraints = false
+        customizationView.addSubview(saveButton)
+        
+        // Constraints
+        NSLayoutConstraint.activate([
+            customizationView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            customizationView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            customizationView.widthAnchor.constraint(equalToConstant: 300),
+            customizationView.heightAnchor.constraint(equalToConstant: 500),
+            
+            backButton.topAnchor.constraint(equalTo: customizationView.topAnchor, constant: 15),
+            backButton.leadingAnchor.constraint(equalTo: customizationView.leadingAnchor, constant: 15),
+            
+            titleLabel.topAnchor.constraint(equalTo: customizationView.topAnchor, constant: 20),
+            titleLabel.centerXAnchor.constraint(equalTo: customizationView.centerXAnchor),
+            
+            headButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 30),
+            headButton.centerXAnchor.constraint(equalTo: customizationView.centerXAnchor),
+            headButton.widthAnchor.constraint(equalToConstant: 200),
+            headButton.heightAnchor.constraint(equalToConstant: 50),
+            
+            handleButton.topAnchor.constraint(equalTo: headButton.bottomAnchor, constant: 20),
+            handleButton.centerXAnchor.constraint(equalTo: customizationView.centerXAnchor),
+            handleButton.widthAnchor.constraint(equalToConstant: 200),
+            handleButton.heightAnchor.constraint(equalToConstant: 50),
+            
+            previewContainer.topAnchor.constraint(equalTo: handleButton.bottomAnchor, constant: 30),
+            previewContainer.centerXAnchor.constraint(equalTo: customizationView.centerXAnchor),
+            previewContainer.widthAnchor.constraint(equalToConstant: 200),
+            previewContainer.heightAnchor.constraint(equalToConstant: 200),
+            
+            prevColorButton.centerYAnchor.constraint(equalTo: previewContainer.centerYAnchor),
+            prevColorButton.trailingAnchor.constraint(equalTo: previewContainer.leadingAnchor, constant: -20),
+            
+            nextColorButton.centerYAnchor.constraint(equalTo: previewContainer.centerYAnchor),
+            nextColorButton.leadingAnchor.constraint(equalTo: previewContainer.trailingAnchor, constant: 20),
+            
+            saveButton.bottomAnchor.constraint(equalTo: customizationView.bottomAnchor, constant: -20),
+            saveButton.centerXAnchor.constraint(equalTo: customizationView.centerXAnchor),
+            saveButton.widthAnchor.constraint(equalToConstant: 100),
+            saveButton.heightAnchor.constraint(equalToConstant: 40)
+        ])
+        
+        // Add tap to close when tapping outside
+        let tapOutside = UITapGestureRecognizer(target: self, action: #selector(hideCustomizationScreen))
+        tapOutside.cancelsTouchesInView = false
+        view.addGestureRecognizer(tapOutside)
+    }
+    
+    func createPartButton(title: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.setTitleColor(.black, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+        button.backgroundColor = UIColor(white: 0.85, alpha: 1)
+        button.layer.cornerRadius = 10
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }
+    
+    @objc func hideCustomizationScreen() {
+        customizationView.removeFromSuperview()
+        previewNode?.removeFromParentNode()
+        previewNode = nil
+        selectedPart = nil
+    }
+    
+    @objc func selectHammerHead() {
+        selectedPart = hammerNode.childNodes.first?.childNodes.first(where: { $0.geometry is SCNBox })
+        setupPreview()
+    }
+    
+    @objc func selectHandle() {
+        selectedPart = hammerNode.childNodes.first?.childNodes.first(where: { $0.geometry is SCNCylinder })
+        setupPreview()
+    }
+    
+    func setupPreview() {
+        guard let part = selectedPart else { return }
+        
+        // Remove previous preview
+        previewNode?.removeFromParentNode()
+        
+        // Create a copy for preview
+        previewNode = part.clone()
+        previewNode?.position = SCNVector3(0, 0, 0)
+        
+        // Add to scene in preview container
+        if let previewContainer = customizationView.subviews.first(where: { $0.backgroundColor == UIColor(white: 0.85, alpha: 1) }) {
+            let previewScene = SCNScene()
+            let cameraNode = SCNNode()
+            cameraNode.camera = SCNCamera()
+            cameraNode.position = SCNVector3(0, 0, 5)
+            previewScene.rootNode.addChildNode(cameraNode)
+            
+            let lightNode = SCNNode()
+            lightNode.light = SCNLight()
+            lightNode.light?.type = .omni
+            lightNode.position = SCNVector3(0, 10, 10)
+            previewScene.rootNode.addChildNode(lightNode)
+            
+            previewScene.rootNode.addChildNode(previewNode!)
+            
+            let previewView = SCNView(frame: previewContainer.bounds)
+            previewView.scene = previewScene
+            previewView.backgroundColor = .clear
+            previewView.allowsCameraControl = false
+            previewContainer.addSubview(previewView)
+            
+            // Rotate slowly
+            let rotateAction = SCNAction.repeatForever(SCNAction.rotateBy(x: 0, y: 0.5, z: 0, duration: 5))
+            previewNode?.runAction(rotateAction)
+        }
+    }
+    
+    @objc func previousColor() {
+        guard let part = selectedPart else { return }
+        currentColorIndex = (currentColorIndex - 1 + colorOptions.count) % colorOptions.count
+        part.geometry?.firstMaterial?.diffuse.contents = colorOptions[currentColorIndex]
+        previewNode?.geometry?.firstMaterial?.diffuse.contents = colorOptions[currentColorIndex]
+    }
+
+    @objc func nextColor() {
+        guard let part = selectedPart else { return }
+        currentColorIndex = (currentColorIndex + 1) % colorOptions.count
+        part.geometry?.firstMaterial?.diffuse.contents = colorOptions[currentColorIndex]
+        previewNode?.geometry?.firstMaterial?.diffuse.contents = colorOptions[currentColorIndex]
+    }
+    
+    @objc func saveCustomization() {
+        // You could save the color choice to UserDefaults here if you want persistence
+        hideCustomizationScreen()
+    }
+    
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        
+        if isMenuOpen, let touch = touches.first {
+            let location = touch.location(in: view)
+            if !menuView.frame.contains(location) && !menuButton.frame.contains(location) {
+                toggleMenu()
+            }
+        }
     }
 
     // MARK: - Cleanup
     deinit {
-        stopAutoHammering() // Ensure timer is stopped if view controller is deallocated
+        stopAutoHammering()
     }
 
+    // MARK: - Scene Creation
 
     func createHammer() {
-        // Hammer head (cube)
         let hammerHead = SCNBox(width: 1.0, height: 0.3, length: 0.5, chamferRadius: 0.05)
         hammerHead.firstMaterial?.diffuse.contents = UIColor.darkGray
         let hammerHeadNode = SCNNode(geometry: hammerHead)
-        hammerHeadNode.position = SCNVector3(x: 0, y: 1.5, z: 0) // Position relative to handle pivot
+        hammerHeadNode.position = SCNVector3(x: 0, y: 1.5, z: 0)
 
-        // Hammer handle (cylinder)
         let hammerHandle = SCNCylinder(radius: 0.08, height: 3.0)
         hammerHandle.firstMaterial?.diffuse.contents = UIColor.brown
         let hammerHandleNode = SCNNode(geometry: hammerHandle)
-        // Position handle below the head pivot point
         hammerHandleNode.position = SCNVector3(x: 0, y: 0, z: 0)
 
-        // Create pivot node AT THE TOP of the handle where it meets the head
-        // This node will be rotated for the swing
         let pivotNode = SCNNode()
-        pivotNode.position = SCNVector3(x: 1.5, y: 0, z: 0) // Position where handle joins head
+        pivotNode.position = SCNVector3(x: 1.5, y: 0, z: 0)
 
-        // Adjust component positions relative to the pivot
-        hammerHeadNode.position = SCNVector3(x: 0, y: 1.5, z: 0) // Head centered at pivot
-        hammerHandleNode.position = SCNVector3(x: 0, y: 0, z: 0) // Handle extends down from pivot
-
-        // Hammer Base Node - this is the main node to position the whole hammer
         hammerNode = SCNNode()
-        // Position the hammer assembly in the scene
-        // The pivot point will be at roughly x=0 after positioning
-        hammerNode.position = SCNVector3(x: 0.1, y: 0.2, z: 0) // Adjusted y position
+        hammerNode.position = SCNVector3(x: 0.1, y: 0.2, z: 0)
 
-        // Add components to the PIVOT node
         pivotNode.addChildNode(hammerHandleNode)
         pivotNode.addChildNode(hammerHeadNode)
-
-        // Add the PIVOT node to the main hammerNode
         hammerNode.addChildNode(pivotNode)
 
-        // Initial rotation (resting position) - apply to PIVOT node
-        pivotNode.eulerAngles = SCNVector3(x: 0, y: 0, z: Float.pi / 12) // Slight angle up
+        pivotNode.eulerAngles = SCNVector3(x: 0, y: 0, z: Float.pi / 12)
 
         scnScene.rootNode.addChildNode(hammerNode)
     }
 
-
     func createNail() {
-        // Nail head
         let nailHead = SCNCylinder(radius: 0.15, height: 0.1)
-        nailHead.firstMaterial?.diffuse.contents = UIColor.lightGray // Lighter grey
+        nailHead.firstMaterial?.diffuse.contents = UIColor.lightGray
 
-        // Nail shaft
-        let nailShaft = SCNCylinder(radius: 0.03, height: 1.2) // Slightly longer
+        let nailShaft = SCNCylinder(radius: 0.03, height: 1.2)
         nailShaft.firstMaterial?.diffuse.contents = UIColor.darkGray
 
-        // Combine nail parts
         let nailHeadNode = SCNNode(geometry: nailHead)
-        nailHeadNode.position = SCNVector3(x: 0, y: (0.1/2), z: 0) // Centered vertically
+        nailHeadNode.position = SCNVector3(x: 0, y: (0.1/2), z: 0)
 
         let nailShaftNode = SCNNode(geometry: nailShaft)
-        nailShaftNode.position = SCNVector3(x: 0, y: -(1.2/2), z: 0) // Centered below head
+        nailShaftNode.position = SCNVector3(x: 0, y: -(1.2/2), z: 0)
 
-        // Create nail node
         nailNode = SCNNode()
         nailNode.addChildNode(nailHeadNode)
         nailNode.addChildNode(nailShaftNode)
-        // Position the nail so the head is roughly at y = 0 before animation
         nailNode.position = SCNVector3(x: 0, y: 0.5, z: 0)
 
-        // Add wooden board under nail
-        let board = SCNBox(width: 3.0, height: 1.5, length: 2, chamferRadius: 0.02) // Thinner, wider board
-        // Wood texture (replace "wood_texture.png" with your image name if you have one)
+        let board = SCNBox(width: 3.0, height: 1.5, length: 2, chamferRadius: 0.02)
         let woodMaterial = SCNMaterial()
-        if let woodImage = UIImage(named: "wood_texture.png") {
-             woodMaterial.diffuse.contents = woodImage
-        } else {
-             woodMaterial.diffuse.contents = UIColor(red: 0.6, green: 0.4, blue: 0.2, alpha: 1) // Fallback color
-        }
+        woodMaterial.diffuse.contents = UIColor(red: 0.6, green: 0.4, blue: 0.2, alpha: 1)
         board.materials = [woodMaterial]
 
         let boardNode = SCNNode(geometry: board)
-        // Position board below the nail's starting point
-        boardNode.position = SCNVector3(x: 0, y: -1.0, z: 0) // Adjusted position
+        boardNode.position = SCNVector3(x: 0, y: -1.0, z: 0)
         scnScene.rootNode.addChildNode(boardNode)
 
         scnScene.rootNode.addChildNode(nailNode)
     }
 
+    // MARK: - UI Setup
 
     func setupUI() {
-        // Nails counter
         nailsLabel = UILabel()
         nailsLabel.text = "Nails Hammered: 0"
-        nailsLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold) // Larger font
+        nailsLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
         nailsLabel.textColor = .black
         nailsLabel.textAlignment = .center
         nailsLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(nailsLabel)
 
-        // Remove tapToHammerLabel setup
-        // tapToHammerLabel = UILabel()
-        // ...
-
-        // Constraints
         NSLayoutConstraint.activate([
-            nailsLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30), // More space top
+            nailsLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 30),
             nailsLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            nailsLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-
-            // Remove tapToHammerLabel constraints
-            // tapToHammerLabel.bottomAnchor.constraint(equalTo: hammerButton.topAnchor, constant: -15), // Position above button
-            // tapToHammerLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+            nailsLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20)
         ])
     }
 
-    // MARK: - Game Actions
+    // MARK: - Animation
 
-    // Original handleTap is no longer needed if using the button's touchDown event
-    //@objc func handleTap(_ gestureRecognize: UIGestureRecognizer) {
-    //    hammerAction() // Call the consolidated action
-    //}
-
-    // *** MODIFIED animateHammerSwing ***
     func animateHammerSwing() {
-        // Get the pivot node (the one that actually rotates)
         guard let pivotNode = hammerNode.childNodes.first else { return }
 
-        // --- Interrupt previous animations ---
         pivotNode.removeAction(forKey: hammerAnimationKey)
         nailNode.removeAction(forKey: nailAnimationKey)
-        // Reset nail position slightly before new animation for consistency
-        // (Optional, but can prevent slight drift if spammed very fast)
-         nailNode.position.y = -0.5 // Reset to original y
+        nailNode.position.y = -0.5
 
-        // --- Define New Animations ---
         let swingDuration = 0.05
-        let impactDuration = 0.03 // Make impact faster
+        let impactDuration = 0.03
         let returnDuration = 0.06
-        let nailBounceBack: Float = 1.5 // How much nail moves per hit
-        let nailMoveDown: Float = 0 // Small bounce
+        let nailBounceBack: Float = 1.5
+        let nailMoveDown: Float = 0
 
-        // Swing down (fast) - rotate around Z-axis to hit nail head
-        // Adjust the angle to visually connect with the nail head
         let swingDown = SCNAction.rotateTo(x: 0, y: 0, z: .pi / 2.5, duration: swingDuration)
         swingDown.timingMode = .easeIn
 
-        // Return to original position (slower)
-        let returnUp = SCNAction.rotateTo(x: 0, y: 0, z: CGFloat(Float.pi) / 12, duration: returnDuration) // Return to resting angle
+        let returnUp = SCNAction.rotateTo(x: 0, y: 0, z: CGFloat(Float.pi) / 12, duration: returnDuration)
         returnUp.timingMode = .easeOut
 
-        // Combine actions for Hammer
-        // Removed the intermediate bounce for faster cycle
         let swingSequence = SCNAction.sequence([swingDown, returnUp])
 
-        // Nail impact effect: Move down quickly, then bounce back slightly
         let nailDownAction = SCNAction.moveBy(x: 0, y: CGFloat(nailMoveDown), z: 0, duration: impactDuration)
         nailDownAction.timingMode = .easeIn
-        let nailUpAction = SCNAction.moveBy(x: 0, y: CGFloat(nailBounceBack), z: 0, duration: returnDuration) // Slower return
+        let nailUpAction = SCNAction.moveBy(x: 0, y: CGFloat(nailBounceBack), z: 0, duration: returnDuration)
         nailUpAction.timingMode = .easeOut
 
-        // Add a small delay before nail moves to sync with hammer impact
-        let waitAction = SCNAction.wait(duration: swingDuration * 0.8) // Wait slightly less than swing down
-
+        let waitAction = SCNAction.wait(duration: swingDuration * 0.8)
         let nailSequence = SCNAction.sequence([waitAction, nailDownAction, nailUpAction])
 
-
-        // --- Run New Animations with Keys ---
         pivotNode.runAction(swingSequence, forKey: hammerAnimationKey)
         nailNode.runAction(nailSequence, forKey: nailAnimationKey)
     }
