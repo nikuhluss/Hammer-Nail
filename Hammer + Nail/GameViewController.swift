@@ -1,7 +1,38 @@
 import UIKit
 import SceneKit
 
-class GameViewController: UIViewController {
+// MARK: - Simple Color Cell for CollectionView
+class ColorCell: UICollectionViewCell {
+    static let identifier = "ColorCell"
+    let colorView = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.addSubview(colorView)
+        colorView.layer.cornerRadius = frame.height / 2
+        colorView.layer.borderWidth = 2
+        colorView.layer.borderColor = UIColor.clear.cgColor // Default: not selected
+        colorView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            colorView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            colorView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            colorView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            colorView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(color: UIColor, isSelected: Bool) {
+        colorView.backgroundColor = color
+        colorView.layer.borderColor = isSelected ? UIColor.black.cgColor : UIColor.clear.cgColor
+        colorView.layer.borderWidth = isSelected ? 3 : 2 // Make selected border thicker
+    }
+}
+
+class GameViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout {
 
     // SceneKit components
     var scnView: SCNView!
@@ -41,17 +72,102 @@ class GameViewController: UIViewController {
     var selectedPart: SCNNode? // Will store either hammer head or handle
     var previewNode: SCNNode? // For displaying the spinning preview
 
+    // --- Customization Properties ---
+    var customizationContainerView: UIView! // Main view for customization
+    var hammerPreviewView: SCNView!        // SCNView for the hammer preview
+    var previewScene: SCNScene!            // Scene for the preview
+    var previewHammerNode: SCNNode?        // The cloned hammer node for preview
+    var previewHammerHeadNode: SCNNode?    // Reference to preview head
+    var previewHammerHandleNode: SCNNode?  // Reference to preview handle
+    var headColorCollectionView: UICollectionView!
+    var handleColorCollectionView: UICollectionView!
+    // Store indices for saving/loading
+    var selectedHeadColorIndex: Int = 0 // Default to index 0 (e.g., darkGray)
+    var selectedHandleColorIndex: Int = 1 // Default to index 1 (e.g., brown)
+
+    // Keys for UserDefaults persistence
+    let headColorIndexKey = "selectedHeadColorIndex"
+    let handleColorIndexKey = "selectedHandleColorIndex"
+
     override func viewDidLoad() {
         super.viewDidLoad()
+        loadCustomization() // Load saved colors before setting up scene
         setupView()
         setupScene()
         setupCamera()
         setupLights()
-        createHammer()
+        createHammer()      // Hammer created with loaded/default colors
         createNail()
         setupUI()
         setupHammerButton()
-        setupMenuButton()
+        setupMenuButton()   // Menu setup remains the same
+        setupCustomizationUI() // Setup the customization view structure (initially hidden)
+    }
+    
+    // MARK: - UICollectionViewDataSource
+
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return colorOptions.count
+    }
+
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ColorCell.identifier, for: indexPath) as? ColorCell else {
+            fatalError("Unable to dequeue ColorCell")
+        }
+        let color = colorOptions[indexPath.item]
+        var isSelected = false
+
+        if collectionView == headColorCollectionView {
+            isSelected = (indexPath.item == selectedHeadColorIndex)
+        } else if collectionView == handleColorCollectionView {
+            isSelected = (indexPath.item == selectedHandleColorIndex)
+        }
+
+        cell.configure(color: color, isSelected: isSelected)
+        return cell
+    }
+    
+    // MARK: - UICollectionViewDelegate
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        let selectedColor = colorOptions[indexPath.item]
+
+        if collectionView == headColorCollectionView {
+            // Update head color selection
+            let previousIndex = selectedHeadColorIndex
+            selectedHeadColorIndex = indexPath.item
+            previewHammerHeadNode?.geometry?.firstMaterial?.diffuse.contents = selectedColor
+
+            // Reload this cell and the previously selected cell for border update
+            let previousIndexPath = IndexPath(item: previousIndex, section: 0)
+            collectionView.reloadItems(at: [indexPath, previousIndexPath].filter { $0.item < colorOptions.count && $0.item >= 0 })
+
+
+        } else if collectionView == handleColorCollectionView {
+            // Update handle color selection
+            let previousIndex = selectedHandleColorIndex
+            selectedHandleColorIndex = indexPath.item
+            previewHammerHandleNode?.geometry?.firstMaterial?.diffuse.contents = selectedColor
+
+             // Reload this cell and the previously selected cell for border update
+            let previousIndexPath = IndexPath(item: previousIndex, section: 0)
+            collectionView.reloadItems(at: [indexPath, previousIndexPath].filter { $0.item < colorOptions.count && $0.item >= 0 })
+        }
+         collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: true)
+    }
+    
+    func loadCustomization() {
+        // Load saved indices from UserDefaults, using defaults if not found
+        selectedHeadColorIndex = UserDefaults.standard.integer(forKey: headColorIndexKey) // Defaults to 0 if key doesn't exist
+        selectedHandleColorIndex = UserDefaults.standard.object(forKey: handleColorIndexKey) as? Int ?? 1 // Default to 1 if key doesn't exist
+
+         // Ensure indices are valid for the current colorOptions array
+         if selectedHeadColorIndex < 0 || selectedHeadColorIndex >= colorOptions.count {
+             selectedHeadColorIndex = 0 // Reset to default if saved index is invalid
+         }
+         if selectedHandleColorIndex < 0 || selectedHandleColorIndex >= colorOptions.count {
+             selectedHandleColorIndex = 1 // Reset to default if saved index is invalid
+         }
     }
 
     // MARK: - Setup Methods
@@ -162,7 +278,7 @@ class GameViewController: UIViewController {
         
         // Create menu title
         let titleLabel = UILabel()
-        titleLabel.text = "Menu"
+        titleLabel.text = ""
         titleLabel.font = UIFont.systemFont(ofSize: 20, weight: .bold)
         titleLabel.textAlignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -260,6 +376,193 @@ class GameViewController: UIViewController {
             closeButton.bottomAnchor.constraint(equalTo: menuView.bottomAnchor, constant: -20)
         ])
     }
+    
+    func setupCustomizationUI() {
+        // Main Container for Customization
+        customizationContainerView = UIView()
+        customizationContainerView.backgroundColor = UIColor(white: 0.9, alpha: 0.95) // Slightly transparent background
+        customizationContainerView.layer.cornerRadius = 20
+        customizationContainerView.layer.shadowColor = UIColor.black.cgColor
+        customizationContainerView.layer.shadowOffset = CGSize(width: 0, height: 5)
+        customizationContainerView.layer.shadowRadius = 15
+        customizationContainerView.layer.shadowOpacity = 0.3
+        customizationContainerView.isHidden = true // Start hidden
+        customizationContainerView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(customizationContainerView) // Add to main view, above overlay
+
+        // Back/Close Button (Top Left)
+        let closeButton = UIButton(type: .system)
+        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeButton.tintColor = .gray
+        closeButton.addTarget(self, action: #selector(hideCustomizationScreen), for: .touchUpInside)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        customizationContainerView.addSubview(closeButton)
+
+        // Title Label
+        let titleLabel = UILabel()
+        titleLabel.text = "Customize Hammer"
+        titleLabel.font = UIFont.systemFont(ofSize: 22, weight: .bold)
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        customizationContainerView.addSubview(titleLabel)
+
+        // --- Hammer Preview Setup ---
+        hammerPreviewView = SCNView()
+        hammerPreviewView.backgroundColor = UIColor.lightGray.withAlphaComponent(0.5)
+        hammerPreviewView.layer.cornerRadius = 10
+        hammerPreviewView.translatesAutoresizingMaskIntoConstraints = false
+        customizationContainerView.addSubview(hammerPreviewView)
+        setupPreviewScene() // Setup the scene, camera, lights for preview
+
+        // --- Head Color Carousel ---
+        let headLabel = UILabel()
+        headLabel.text = "Head Color"
+        headLabel.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        headLabel.textAlignment = .center
+        headLabel.translatesAutoresizingMaskIntoConstraints = false
+        customizationContainerView.addSubview(headLabel)
+
+        let headLayout = UICollectionViewFlowLayout()
+        headLayout.scrollDirection = .horizontal
+        headLayout.itemSize = CGSize(width: 50, height: 50) // Adjust size as needed
+        headLayout.minimumLineSpacing = 10
+        headLayout.sectionInset = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
+
+        headColorCollectionView = UICollectionView(frame: .zero, collectionViewLayout: headLayout)
+        headColorCollectionView.dataSource = self
+        headColorCollectionView.delegate = self
+        headColorCollectionView.register(ColorCell.self, forCellWithReuseIdentifier: ColorCell.identifier)
+        headColorCollectionView.backgroundColor = .clear
+        headColorCollectionView.showsHorizontalScrollIndicator = false
+        headColorCollectionView.translatesAutoresizingMaskIntoConstraints = false
+        customizationContainerView.addSubview(headColorCollectionView)
+
+        // --- Handle Color Carousel ---
+        let handleLabel = UILabel()
+        handleLabel.text = "Handle Color"
+        handleLabel.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        handleLabel.textAlignment = .center
+        handleLabel.translatesAutoresizingMaskIntoConstraints = false
+        customizationContainerView.addSubview(handleLabel)
+
+        let handleLayout = UICollectionViewFlowLayout()
+        handleLayout.scrollDirection = .horizontal
+        handleLayout.itemSize = CGSize(width: 50, height: 50) // Adjust size as needed
+        handleLayout.minimumLineSpacing = 10
+        handleLayout.sectionInset = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
+
+        handleColorCollectionView = UICollectionView(frame: .zero, collectionViewLayout: handleLayout)
+        handleColorCollectionView.dataSource = self
+        handleColorCollectionView.delegate = self
+        handleColorCollectionView.register(ColorCell.self, forCellWithReuseIdentifier: ColorCell.identifier)
+        handleColorCollectionView.backgroundColor = .clear
+        handleColorCollectionView.showsHorizontalScrollIndicator = false
+        handleColorCollectionView.translatesAutoresizingMaskIntoConstraints = false
+        customizationContainerView.addSubview(handleColorCollectionView)
+
+        // --- Save Button ---
+        let saveButton = UIButton(type: .system)
+        saveButton.setTitle("Save & Close", for: .normal)
+        saveButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .bold)
+        saveButton.setTitleColor(.white, for: .normal)
+        saveButton.backgroundColor = .systemGreen
+        saveButton.layer.cornerRadius = 10
+        saveButton.addTarget(self, action: #selector(saveCustomization), for: .touchUpInside)
+        saveButton.translatesAutoresizingMaskIntoConstraints = false
+        customizationContainerView.addSubview(saveButton)
+
+        // --- Constraints ---
+        let padding: CGFloat = 20
+        let carouselHeight: CGFloat = 60 // Height including inset
+
+        NSLayoutConstraint.activate([
+            // Container (slightly smaller than the old menu, adjust as needed)
+            customizationContainerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            customizationContainerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            customizationContainerView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.85), // 85% of screen width
+            customizationContainerView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.7), // 70% of screen height
+
+            // Close Button
+            closeButton.topAnchor.constraint(equalTo: customizationContainerView.topAnchor, constant: padding / 2),
+            closeButton.leadingAnchor.constraint(equalTo: customizationContainerView.leadingAnchor, constant: padding / 2),
+            closeButton.widthAnchor.constraint(equalToConstant: 40),
+            closeButton.heightAnchor.constraint(equalToConstant: 40),
+
+            // Title
+            titleLabel.topAnchor.constraint(equalTo: customizationContainerView.topAnchor, constant: padding),
+            titleLabel.centerXAnchor.constraint(equalTo: customizationContainerView.centerXAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor, constant: 5),
+            titleLabel.trailingAnchor.constraint(equalTo: customizationContainerView.trailingAnchor, constant: -padding - 35), // Space for close button
+
+            // Preview View (takes up significant space)
+            hammerPreviewView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: padding),
+            hammerPreviewView.leadingAnchor.constraint(equalTo: customizationContainerView.leadingAnchor, constant: padding),
+            hammerPreviewView.trailingAnchor.constraint(equalTo: customizationContainerView.trailingAnchor, constant: -padding),
+            // Height constraint will be determined by bottom elements
+
+            // Head Label
+            headLabel.topAnchor.constraint(equalTo: hammerPreviewView.bottomAnchor, constant: padding),
+            headLabel.leadingAnchor.constraint(equalTo: customizationContainerView.leadingAnchor, constant: padding),
+            headLabel.trailingAnchor.constraint(equalTo: customizationContainerView.trailingAnchor, constant: -padding),
+
+            // Head Collection View
+            headColorCollectionView.topAnchor.constraint(equalTo: headLabel.bottomAnchor, constant: 5),
+            headColorCollectionView.leadingAnchor.constraint(equalTo: customizationContainerView.leadingAnchor),
+            headColorCollectionView.trailingAnchor.constraint(equalTo: customizationContainerView.trailingAnchor),
+            headColorCollectionView.heightAnchor.constraint(equalToConstant: carouselHeight),
+
+            // Handle Label
+            handleLabel.topAnchor.constraint(equalTo: headColorCollectionView.bottomAnchor, constant: padding),
+            handleLabel.leadingAnchor.constraint(equalTo: customizationContainerView.leadingAnchor, constant: padding),
+            handleLabel.trailingAnchor.constraint(equalTo: customizationContainerView.trailingAnchor, constant: -padding),
+
+            // Handle Collection View
+            handleColorCollectionView.topAnchor.constraint(equalTo: handleLabel.bottomAnchor, constant: 5),
+            handleColorCollectionView.leadingAnchor.constraint(equalTo: customizationContainerView.leadingAnchor),
+            handleColorCollectionView.trailingAnchor.constraint(equalTo: customizationContainerView.trailingAnchor),
+            handleColorCollectionView.heightAnchor.constraint(equalToConstant: carouselHeight),
+
+             // Make Preview View fill space above head label and below handle collection view
+            hammerPreviewView.bottomAnchor.constraint(equalTo: headLabel.topAnchor, constant: -padding),
+
+            // Save Button (at the bottom)
+            saveButton.topAnchor.constraint(equalTo: handleColorCollectionView.bottomAnchor, constant: padding),
+            saveButton.centerXAnchor.constraint(equalTo: customizationContainerView.centerXAnchor),
+            saveButton.widthAnchor.constraint(equalToConstant: 150),
+            saveButton.heightAnchor.constraint(equalToConstant: 50),
+            saveButton.bottomAnchor.constraint(equalTo: customizationContainerView.bottomAnchor, constant: -padding) // Anchor to bottom
+        ])
+    }
+    
+    func setupPreviewScene() {
+        previewScene = SCNScene()
+        hammerPreviewView.scene = previewScene
+        hammerPreviewView.allowsCameraControl = true // Allow user to rotate preview
+        hammerPreviewView.autoenablesDefaultLighting = false // Use custom lights
+
+        // Preview Camera
+        let cameraNode = SCNNode()
+        cameraNode.camera = SCNCamera()
+        cameraNode.position = SCNVector3(0, 1, 6) // Adjust position for good view
+        previewScene.rootNode.addChildNode(cameraNode)
+
+        // Preview Lighting
+        let ambientLight = SCNNode()
+        ambientLight.light = SCNLight()
+        ambientLight.light?.type = .ambient
+        ambientLight.light?.intensity = 400
+        ambientLight.light?.color = UIColor(white: 0.7, alpha: 1.0)
+        previewScene.rootNode.addChildNode(ambientLight)
+
+        let directionalLight = SCNNode()
+        directionalLight.light = SCNLight()
+        directionalLight.light?.type = .directional
+        directionalLight.light?.intensity = 800
+        directionalLight.light?.color = UIColor.white
+        directionalLight.position = SCNVector3(-3, 5, 4)
+        directionalLight.eulerAngles = SCNVector3(-Float.pi/4, -Float.pi/4, 0)
+        previewScene.rootNode.addChildNode(directionalLight)
+    }
 
     // MARK: - Button Actions
 
@@ -337,22 +640,29 @@ class GameViewController: UIViewController {
                 self.menuButton.isUserInteractionEnabled = true
             }
         }
+        if customizationContainerView != nil && !customizationContainerView.isHidden {
+             hideCustomizationScreen()
+         }
     }
     
     @objc func menuOptionSelected(_ sender: UIButton) {
+        // Close menu first
         toggleMenu()
-        
-        // Add a slight delay to allow menu to close before showing next screen
+
+        // Add a slight delay to allow menu to close before showing next screen/action
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             switch sender.tag {
             case 0: // Settings
                 print("Settings selected")
+                // Implement Settings screen presentation
             case 1: // Customize
-                self.showCustomizationScreen()
+                 self.presentCustomizationScreen() // Call the new presentation method
             case 2: // Share
                 print("Share selected")
+                // Implement Share functionality
             case 3: // Shop
                 print("Shop selected")
+                // Implement Shop screen presentation
             default:
                 break
             }
@@ -484,10 +794,25 @@ class GameViewController: UIViewController {
     }
     
     @objc func hideCustomizationScreen() {
-        customizationView.removeFromSuperview()
-        previewNode?.removeFromParentNode()
-        previewNode = nil
-        selectedPart = nil
+        // Animate out
+        UIView.animate(withDuration: 0.3, animations: {
+            self.overlayView.alpha = 0 // Fade out overlay
+            self.customizationContainerView.alpha = 0
+            self.customizationContainerView.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+        }) { _ in
+            self.customizationContainerView.isHidden = true
+            self.overlayView.isHidden = true
+
+            // Clean up preview
+            self.previewHammerNode?.removeFromParentNode()
+            self.previewHammerNode = nil
+            self.previewHammerHeadNode = nil
+            self.previewHammerHandleNode = nil
+
+            // Re-enable background interaction
+            self.hammerButton.isUserInteractionEnabled = true
+            self.menuButton.isUserInteractionEnabled = true
+        }
     }
     
     @objc func selectHammerHead() {
@@ -538,6 +863,80 @@ class GameViewController: UIViewController {
         }
     }
     
+    func presentCustomizationScreen() {
+        guard let mainHammer = self.hammerNode else { return } // Ensure hammer exists
+
+        // Disable background interaction
+        hammerButton.isUserInteractionEnabled = false
+        menuButton.isUserInteractionEnabled = false
+
+        // Show overlay
+        overlayView.isHidden = false
+
+        // --- Setup Preview Hammer ---
+        // Remove old preview if exists
+        previewHammerNode?.removeFromParentNode()
+
+        // Clone the *entire* hammer node from the main scene
+        previewHammerNode = mainHammer.clone()
+        previewHammerNode?.position = SCNVector3(0, 0, 0) // Center in preview
+        previewHammerNode?.eulerAngles = SCNVector3(0, 0, 0) // Reset rotation for preview
+
+        // Find the head and handle within the *cloned* node
+        previewHammerHeadNode = previewHammerNode?.childNode(withName: "hammerHead", recursively: true)
+        previewHammerHandleNode = previewHammerNode?.childNode(withName: "hammerHandle", recursively: true)
+
+        // Add the cloned hammer to the preview scene
+        if let previewHammer = previewHammerNode {
+            previewScene.rootNode.addChildNode(previewHammer)
+            // Optional: Add a slow rotation animation
+             let rotateAction = SCNAction.repeatForever(SCNAction.rotateBy(x: 0, y: 1, z: 0, duration: 10))
+             previewHammer.runAction(rotateAction)
+        }
+
+        // Reload collection views to show current selection
+        headColorCollectionView.reloadData()
+        handleColorCollectionView.reloadData()
+        // Scroll to selected items initially (optional, but good UX)
+        headColorCollectionView.scrollToItem(at: IndexPath(item: selectedHeadColorIndex, section: 0), at: .centeredHorizontally, animated: false)
+        handleColorCollectionView.scrollToItem(at: IndexPath(item: selectedHandleColorIndex, section: 0), at: .centeredHorizontally, animated: false)
+
+
+        // Prepare animation
+        customizationContainerView.isHidden = false
+        customizationContainerView.alpha = 0
+        customizationContainerView.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+
+        // Animate in
+        UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: [], animations: {
+            self.overlayView.alpha = 1 // Fade in overlay fully
+            self.customizationContainerView.alpha = 1
+            self.customizationContainerView.transform = .identity
+        })
+    }
+    
+    
+    // MARK: - Customization Actions
+
+    @objc func saveCustomization() {
+        // Apply selected colors to the *main game* hammer node
+        let headColor = colorOptions[selectedHeadColorIndex]
+        let handleColor = colorOptions[selectedHandleColorIndex]
+
+        // Find the actual game hammer parts by name
+        let gameHammerHead = hammerNode.childNode(withName: "hammerHead", recursively: true)
+        let gameHammerHandle = hammerNode.childNode(withName: "hammerHandle", recursively: true)
+
+        gameHammerHead?.geometry?.firstMaterial?.diffuse.contents = headColor
+        gameHammerHandle?.geometry?.firstMaterial?.diffuse.contents = handleColor
+
+        // --- Persistence ---
+        UserDefaults.standard.set(selectedHeadColorIndex, forKey: headColorIndexKey)
+        UserDefaults.standard.set(selectedHandleColorIndex, forKey: handleColorIndexKey)
+
+        hideCustomizationScreen()
+    }
+    
     @objc func previousColor() {
         guard let part = selectedPart else { return }
         currentColorIndex = (currentColorIndex - 1 + colorOptions.count) % colorOptions.count
@@ -552,21 +951,24 @@ class GameViewController: UIViewController {
         previewNode?.geometry?.firstMaterial?.diffuse.contents = colorOptions[currentColorIndex]
     }
     
-    @objc func saveCustomization() {
-        // You could save the color choice to UserDefaults here if you want persistence
-        hideCustomizationScreen()
-    }
+//    @objc func saveCustomization() {
+//        // You could save the color choice to UserDefaults here if you want persistence
+//        hideCustomizationScreen()
+//    }
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesBegan(touches, with: event)
-        
-        if isMenuOpen, let touch = touches.first {
-            let location = touch.location(in: view)
-            if !menuView.frame.contains(location) && !menuButton.frame.contains(location) {
-                toggleMenu()
-            }
-        }
-    }
+             super.touchesBegan(touches, with: event)
+
+             if isMenuOpen, let touch = touches.first {
+                 let location = touch.location(in: view)
+                 // Close menu if tap is outside menu and menu button
+                 if !menuView.frame.contains(location) && !menuButton.frame.contains(location) {
+                     toggleMenu()
+                 }
+             }
+             // Note: We don't need special touch handling to close the customization view here,
+             // as the overlay and the view itself capture touches. The 'X' button is used to close.
+         }
 
     // MARK: - Cleanup
     deinit {
