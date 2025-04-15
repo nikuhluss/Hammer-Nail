@@ -1,0 +1,205 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "BB067792",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "54E56A0C",
+      "localizations" : [
+        {
+          "description" : "Aqua vibes",
+          "displayName" : "Teal",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "ht1",
+      "promotionalImageID" : "BAAD34C0",
+      "referenceName" : "Teal Hammer",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "68B344A3",
+      "localizations" : [
+        {
+          "description" : "A nice citrus color!",
+          "displayName" : "Orange",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "ho1",
+      "promotionalImageID" : "D067BB1A",
+      "referenceName" : "Orange Hammer",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "01682C28",
+      "localizations" : [
+        {
+          "description" : "",
+          "displayName" : "",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "hp1",
+      "promotionalImageID" : "B572D620",
+      "referenceName" : "Purple Hammer",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "360A05D2",
+      "localizations" : [
+        {
+          "description" : "Shining bright like the sun",
+          "displayName" : "Yellow",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "hy1",
+      "promotionalImageID" : "135FD1C6",
+      "referenceName" : "Yellow Hammer",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "8874B645",
+      "localizations" : [
+        {
+          "description" : "moody",
+          "displayName" : "Indigo",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "hdb1",
+      "promotionalImageID" : "E6DAD1EF",
+      "referenceName" : "Dark Blue Hammer",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "F10C768E",
+      "localizations" : [
+        {
+          "description" : "Playful and Vibrant",
+          "displayName" : "Watermelon",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "hw1",
+      "promotionalImageID" : "FE9D2507",
+      "referenceName" : "Watermelon Hammer",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "3A97E948",
+      "localizations" : [
+        {
+          "description" : "fresh crisp clean",
+          "displayName" : "Bright Sky",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "hbs1",
+      "promotionalImageID" : "89079C91",
+      "referenceName" : "Bright Sky Hammer",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "1F3A778D",
+      "localizations" : [
+        {
+          "description" : "cloudy day",
+          "displayName" : "Soft Gray",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "hsg1",
+      "promotionalImageID" : "EBEB105B",
+      "referenceName" : "Soft Gray Hammer",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

@@ -82,6 +82,12 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
     var colorOptions: [UIColor] = [
         .darkGray, .brown, .red, .blue, .green, .yellow, .purple, .orange, .black, .white, .systemTeal, .magenta
     ]
+    
+    let baseColorOptions: [UIColor] = [
+        .darkGray, .brown, .red, .blue, .green, .yellow, .purple, .orange, .black, .white, .systemTeal, .magenta
+    ]
+    
+    var availableColorOptions: [UIColor] = []
     // Store selected indices for saving/loading
     var selectedHeadColorIndex: Int = 0 // Default head color index (e.g., darkGray)
     var selectedHandleColorIndex: Int = 1 // Default handle color index (e.g., brown)
@@ -89,18 +95,22 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
     // Keys for UserDefaults persistence
     let headColorIndexKey = "selectedHeadColorIndex"
     let handleColorIndexKey = "selectedHandleColorIndex"
-
-    // --- REMOVED: Old Customization Properties ---
-    // var customizationView: UIView! // Replaced by customizationContainerView
-    // var currentColorIndex = 0      // Replaced by selectedHead/HandleColorIndex
-    // var selectedPart: SCNNode?    // No longer needed
-    // var previewNode: SCNNode?     // Replaced by previewHammerNode and specific parts
+    var storeManager: StoreManager!
 
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
-        // 1. Load saved or default color indices
-        loadCustomization()
+
+        // --- NEW: Initialize StoreManager ---
+        storeManager = StoreManager() // Create the instance
+
+        // --- NEW: Register for Purchase Notifications ---
+        NotificationCenter.default.addObserver(self, selector: #selector(handlePurchasesUpdated(_:)), name: .purchasesUpdated, object: nil)
+
+
+
+        updateAvailableColors() // Initial update
+        loadCustomization()     // Now load indices based on potentially updated available colors
 
         // 2. Setup main view and scene (Original)
         setupView()
@@ -112,7 +122,7 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
         createHammer()      // Now uses node naming
         createNail()
 
-        // 4. Apply loaded/default colors to the MAIN hammer
+        // 4. Apply loaded/default colors to the MAIN hammer (Uses availableColorOptions now)
         applyHammerColors(headColorIndex: selectedHeadColorIndex, handleColorIndex: selectedHandleColorIndex)
 
         // 5. Setup UI elements (Original)
@@ -121,7 +131,17 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
         setupMenuButton()
 
         // 6. Setup the NEW customization UI structure (initially hidden)
-        setupCustomizationUI()
+        setupCustomizationUI() // This will now use availableColorOptions
+
+        // --- NEW: Request products after setup ---
+         // Perform initial check after a short delay to allow StoreManager init
+        Task {
+            try? await Task.sleep(nanoseconds: 1 * 1_000_000_000) // 1 second delay
+            await storeManager.updatePurchasedStatus()
+            await storeManager.requestProducts()
+            updateAvailableColors()
+        }
+            
     }
 
     // MARK: - Setup Methods (Original + New)
@@ -252,7 +272,7 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
         menuStackView.translatesAutoresizingMaskIntoConstraints = false
         menuView.addSubview(menuStackView)
 
-        // Optional Title
+        // Title Label (Optional)
         let titleLabel = UILabel()
         titleLabel.text = "Menu"
         titleLabel.font = UIFont.systemFont(ofSize: 20, weight: .bold)
@@ -261,7 +281,7 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
         menuStackView.setCustomSpacing(15, after: titleLabel)
 
         // *** IMPORTANT: Ensure "Customize" is tag 1 if using original options order ***
-        let options = ["Settings", "Customize", "Share", "Shop"]
+        let options = ["Settings", "Customize", "Shop", "Share"]
         for (index, option) in options.enumerated() {
             let button = UIButton(type: .system)
             button.setTitle(option, for: .normal)
@@ -686,23 +706,77 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
          }
     }
 
+    // --- MODIFIED: Menu Option Handling ---
     @objc func menuOptionSelected(_ sender: UIButton) {
         toggleMenu() // Close the menu first
 
         // Delay action slightly
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+             // Corresponds to ["Settings", "Customize", "Shop", "Share"] order
             switch sender.tag {
-            case 0: // Settings (Based on "Settings", "Customize", "Share", "Shop" order)
+            case 0: // Settings
                 print("Settings selected")
             case 1: // Customize
-                 self.presentCustomizationScreen() // *** CALL NEW FUNCTION ***
-            case 2: // Share
+                // Ensure colors are up-to-date before presenting
+                self.updateAvailableColors()
+                self.presentCustomizationScreen()
+            case 2: // Shop
+                print("Attempting to present shop")
+                print("Current available products count: \(self.storeManager.availableProducts.count)")
+                print("Current purchased IDs: \(self.storeManager.purchasedProductIDs)")
+                
+                if self.storeManager.availableProducts.isEmpty {
+                    print("No products available - attempting to fetch")
+                    let loadingAlert = UIAlertController(title: "Loading Shop", message: nil, preferredStyle: .alert)
+                    self.present(loadingAlert, animated: true)
+                    
+                    Task {
+                        await self.storeManager.requestProducts()
+                        
+                        await MainActor.run {
+                            loadingAlert.dismiss(animated: true) {
+                                if self.storeManager.availableProducts.isEmpty {
+                                    print("Still no products after fetch attempt")
+                                    self.showSimpleAlert(title: "Shop Unavailable",
+                                                      message: "Please check your internet connection and try again.")
+                                } else {
+                                    print("Products loaded successfully, presenting shop")
+                                    self.presentShop(manager: self.storeManager)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    print("Products already available, presenting shop")
+                    self.presentShop(manager: self.storeManager)
+                }
+
+            case 3: // Share
                 print("Share selected")
-            case 3: // Shop
-                print("Shop selected")
             default:
                 break
             }
+        }
+    }
+    
+    // --- NEW: Helper to present Shop ---
+    private func presentShop(manager: StoreManager) {
+        let shopVC = ShopViewController()
+        shopVC.storeManager = manager // Pass the instance
+
+        // Embed in a Navigation Controller for the title bar and close button
+        let navController = UINavigationController(rootViewController: shopVC)
+        navController.modalPresentationStyle = .pageSheet // Or .formSheet etc.
+        self.present(navController, animated: true, completion: nil)
+    }
+    
+    // --- NEW: Helper for simple alerts ---
+    private func showSimpleAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        // Ensure presentation happens on the main thread
+        DispatchQueue.main.async {
+            self.present(alert, animated: true)
         }
     }
 
@@ -818,47 +892,59 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
 
     // MARK: - Customization Logic (NEW)
 
-    // --- NEW: Save function called by button ---
+    // MARK: - Customization Logic (MODIFIED)
     @objc func saveCustomizationAndClose() {
-        // 1. Apply selected colors to the *main game* hammer node
+        // Apply colors using the potentially filtered availableColorOptions indices
         applyHammerColors(headColorIndex: selectedHeadColorIndex, handleColorIndex: selectedHandleColorIndex)
 
-        // 2. Save the selected indices persistently
+        // Save the selected indices persistently
         UserDefaults.standard.set(selectedHeadColorIndex, forKey: headColorIndexKey)
         UserDefaults.standard.set(selectedHandleColorIndex, forKey: handleColorIndexKey)
-        print("Customization Saved: Head Index \(selectedHeadColorIndex), Handle Index \(selectedHandleColorIndex)")
+        print("Customization Saved: Head Index \(selectedHeadColorIndex), Handle Index \(selectedHandleColorIndex) (relative to available options)")
 
-        // 3. Hide the screen
         hideCustomizationScreen(animated: true)
     }
 
     // --- NEW: Load Customization Function ---
     func loadCustomization() {
-        // Load saved indices from UserDefaults
+        // Load saved indices
         let savedHeadIndex = UserDefaults.standard.object(forKey: headColorIndexKey) as? Int
         let savedHandleIndex = UserDefaults.standard.object(forKey: handleColorIndexKey) as? Int
 
-        // Use saved index if valid and within bounds, otherwise use default
-        selectedHeadColorIndex = (savedHeadIndex != nil && savedHeadIndex! >= 0 && savedHeadIndex! < colorOptions.count) ? savedHeadIndex! : 0 // Default head index
-        selectedHandleColorIndex = (savedHandleIndex != nil && savedHandleIndex! >= 0 && savedHandleIndex! < colorOptions.count) ? savedHandleIndex! : 1 // Default handle index
+        // Use saved index if valid and within bounds of *currently available* colors, otherwise use default
+        selectedHeadColorIndex = (savedHeadIndex != nil && savedHeadIndex! >= 0 && savedHeadIndex! < availableColorOptions.count) ? savedHeadIndex! : 0
+        selectedHandleColorIndex = (savedHandleIndex != nil && savedHandleIndex! >= 0 && savedHandleIndex! < availableColorOptions.count) ? savedHandleIndex! : min(1, availableColorOptions.count - 1) // Default handle index (avoid index out of bounds)
 
-        print("Customization Loaded: Head Index \(selectedHeadColorIndex), Handle Index \(selectedHandleColorIndex)")
+        print("Customization Loaded: Head Index \(selectedHeadColorIndex), Handle Index \(selectedHandleColorIndex) (relative to \(availableColorOptions.count) available options)")
+
+        // Ensure indices are valid if available options changed drastically
+        if selectedHeadColorIndex >= availableColorOptions.count { selectedHeadColorIndex = 0 }
+        if selectedHandleColorIndex >= availableColorOptions.count { selectedHandleColorIndex = min(1, availableColorOptions.count - 1)}
+        if availableColorOptions.isEmpty {
+             selectedHeadColorIndex = 0
+             selectedHandleColorIndex = 0
+        }
+
     }
 
     // --- NEW: Function to Apply Colors ---
-    // --- Function to Apply Colors (Modified with Transaction + Snapshot) ---
+    // --- MODIFIED: Apply colors using availableColorOptions ---
     func applyHammerColors(headColorIndex: Int, handleColorIndex: Int) {
-        // Validate indices
-        guard headColorIndex >= 0 && headColorIndex < colorOptions.count,
-              handleColorIndex >= 0 && handleColorIndex < colorOptions.count else {
-            print("Error: Invalid color index provided during apply. Head: \(headColorIndex), Handle: \(handleColorIndex)")
+        // Validate indices against *available* colors
+        guard !availableColorOptions.isEmpty,
+              headColorIndex >= 0 && headColorIndex < availableColorOptions.count,
+              handleColorIndex >= 0 && handleColorIndex < availableColorOptions.count else {
+            print("Error: Invalid color index provided during apply. Head: \(headColorIndex), Handle: \(handleColorIndex) (Available: \(availableColorOptions.count))")
+            // Fallback to default colors if indices invalid
+            applyFallbackColors()
             return
         }
 
-        let headColor = colorOptions[headColorIndex]
-        let handleColor = colorOptions[handleColorIndex]
+        let headColor = availableColorOptions[headColorIndex]
+        let handleColor = availableColorOptions[handleColorIndex]
 
-        // Find the main game hammer parts *by name*
+        // Find the main game hammer parts by name
+        // ... (Keep the rest of the geometry finding logic) ...
         guard let mainHammer = hammerNode,
               let gameHammerHead = mainHammer.childNode(withName: "hammerHead", recursively: true),
               let gameHammerHandle = mainHammer.childNode(withName: "hammerHandle", recursively: true) else {
@@ -866,44 +952,128 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
             return
         }
 
-        // --- Create new materials ---
+        // ... (Keep the material creation and SCNTransaction logic) ...
         let newHeadMaterial = SCNMaterial()
         newHeadMaterial.diffuse.contents = headColor
-
         let newHandleMaterial = SCNMaterial()
         newHandleMaterial.diffuse.contents = handleColor
 
-        // --- Apply materials within an explicit transaction ---
         SCNTransaction.begin()
-        // Use .materials array for safety
         gameHammerHead.geometry?.materials = [newHeadMaterial]
         gameHammerHandle.geometry?.materials = [newHandleMaterial]
         SCNTransaction.commit()
-        // -------------------------------------------------
-
-        // --- Force a render pass by requesting a snapshot ---
-        // We don't need the image, just the rendering side effect.
         _ = scnView.snapshot()
-        // --------------------------------------------------
-
-        print("Applied colors and forced snapshot.")
+        print("Applied colors (Head: \(headColorIndex), Handle: \(handleColorIndex)) from available options and forced snapshot.")
     }
+
+    // --- NEW: Fallback color application ---
+    func applyFallbackColors() {
+        print("Applying fallback colors.")
+         guard let mainHammer = hammerNode,
+               let gameHammerHead = mainHammer.childNode(withName: "hammerHead", recursively: true),
+               let gameHammerHandle = mainHammer.childNode(withName: "hammerHandle", recursively: true) else {
+             return
+         }
+         let headColor = baseColorOptions.first ?? .darkGray
+         let handleColor = baseColorOptions.count > 1 ? baseColorOptions[1] : .brown
+
+         let newHeadMaterial = SCNMaterial()
+         newHeadMaterial.diffuse.contents = headColor
+         let newHandleMaterial = SCNMaterial()
+         newHandleMaterial.diffuse.contents = handleColor
+
+         SCNTransaction.begin()
+         gameHammerHead.geometry?.materials = [newHeadMaterial]
+         gameHammerHandle.geometry?.materials = [newHandleMaterial]
+         SCNTransaction.commit()
+         _ = scnView.snapshot()
+    }
+    
+    // --- NEW: Update Available Colors based on Purchases ---
+    func updateAvailableColors() {
+        guard let manager = storeManager else {
+            print("Warning: StoreManager not initialized yet for color update.")
+            availableColorOptions = baseColorOptions // Use base if manager unavailable
+            return
+        }
+
+        var currentAvailable = baseColorOptions // Start with base colors
+
+        // Add purchased colors
+        for purchasedID in manager.purchasedProductIDs {
+            if let color = shopColorMap[purchasedID] { // Use the map from StoreManager
+                if !currentAvailable.contains(color) { // Avoid duplicates if base includes purchasable ones
+                    currentAvailable.append(color)
+                    print("Added purchased color for ID: \(purchasedID)")
+                }
+            }
+        }
+
+        if availableColorOptions != currentAvailable {
+            print("Available colors updated. Count: \(currentAvailable.count)")
+            availableColorOptions = currentAvailable
+
+            // If customization screen is visible, reload its data
+            if customizationContainerView != nil && !customizationContainerView.isHidden {
+                headColorCollectionView.reloadData()
+                handleColorCollectionView.reloadData()
+                // Re-validate selected indices after reload
+                loadCustomization()
+                applyPreviewColors() // Update preview immediately
+            }
+             // Also re-apply to main hammer if colors changed significantly
+             // and customization isn't open (to avoid conflict)
+             else {
+                 // Re-load indices and apply to main hammer
+                 loadCustomization()
+                 applyHammerColors(headColorIndex: selectedHeadColorIndex, handleColorIndex: selectedHandleColorIndex)
+             }
+        }
+    }
+    
+    // --- NEW: Notification Handler ---
+    @objc func handlePurchasesUpdated(_ notification: Notification) {
+        print("GameVC: Received purchase update notification.")
+        // Update the available colors list
+        updateAvailableColors()
+    }
+    
+    // --- NEW: Apply colors to preview hammer ---
+    func applyPreviewColors() {
+         guard selectedHeadColorIndex >= 0 && selectedHeadColorIndex < availableColorOptions.count,
+               selectedHandleColorIndex >= 0 && selectedHandleColorIndex < availableColorOptions.count else {
+             print("Preview Apply Error: Invalid indices (\(selectedHeadColorIndex), \(selectedHandleColorIndex)) for available options (\(availableColorOptions.count))")
+             return
+         }
+         previewHammerHeadNode?.geometry?.firstMaterial?.diffuse.contents = availableColorOptions[selectedHeadColorIndex]
+         previewHammerHandleNode?.geometry?.firstMaterial?.diffuse.contents = availableColorOptions[selectedHandleColorIndex]
+         // print("Applied preview colors.")
+     }
 
 
     // MARK: - UICollectionViewDataSource (NEW)
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return colorOptions.count
-    }
+       // Use the dynamic list of available colors
+       return availableColorOptions.count
+   }
+
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ColorCell.identifier, for: indexPath) as? ColorCell else {
             fatalError("Unable to dequeue ColorCell")
         }
-        let color = colorOptions[indexPath.item]
+        // Use the dynamic list of available colors
+        guard indexPath.item < availableColorOptions.count else {
+             print("Error: Index out of bounds for availableColorOptions in cellForItemAt")
+             // Return a placeholder or default cell
+             cell.configure(color: .lightGray, isSelected: false)
+             return cell
+         }
+
+        let color = availableColorOptions[indexPath.item]
         var isSelected = false
 
-        // Determine if this cell should be marked as selected based on which collection view it is
         if collectionView == headColorCollectionView {
             isSelected = (indexPath.item == selectedHeadColorIndex)
         } else if collectionView == handleColorCollectionView {
@@ -914,45 +1084,42 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
         return cell
     }
 
-    // MARK: - UICollectionViewDelegate (NEW)
+    // MARK: - UICollectionViewDelegate (MODIFIED)
+   func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard indexPath.item < availableColorOptions.count else {
+            print("Error: Index out of bounds for availableColorOptions in didSelectItemAt")
+            return
+        }
+       let selectedColor = availableColorOptions[indexPath.item]
+       var previousIndexPath: IndexPath?
 
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let selectedColor = colorOptions[indexPath.item]
-        var previousIndexPath: IndexPath?
+       if collectionView == headColorCollectionView {
+           if indexPath.item != selectedHeadColorIndex {
+               previousIndexPath = IndexPath(item: selectedHeadColorIndex, section: 0)
+               selectedHeadColorIndex = indexPath.item
+               applyPreviewColors() // Update preview
+           }
+       } else if collectionView == handleColorCollectionView {
+            if indexPath.item != selectedHandleColorIndex {
+               previousIndexPath = IndexPath(item: selectedHandleColorIndex, section: 0)
+               selectedHandleColorIndex = indexPath.item
+               applyPreviewColors() // Update preview
+           }
+       }
 
-        // Update the model (selected index) and apply color to the PREVIEW hammer node
-        if collectionView == headColorCollectionView {
-            if indexPath.item != selectedHeadColorIndex { // Only update if different
-                previousIndexPath = IndexPath(item: selectedHeadColorIndex, section: 0)
-                selectedHeadColorIndex = indexPath.item
-                // Apply color change ONLY to the PREVIEW node here
-                previewHammerHeadNode?.geometry?.firstMaterial?.diffuse.contents = selectedColor
-                // print("Preview Head Color Updated: \(selectedColor) at index \(indexPath.item)")
-            }
-        } else if collectionView == handleColorCollectionView {
-             if indexPath.item != selectedHandleColorIndex { // Only update if different
-                previousIndexPath = IndexPath(item: selectedHandleColorIndex, section: 0)
-                selectedHandleColorIndex = indexPath.item
-                // Apply color change ONLY to the PREVIEW node here
-                previewHammerHandleNode?.geometry?.firstMaterial?.diffuse.contents = selectedColor
-                // print("Preview Handle Color Updated: \(selectedColor) at index \(indexPath.item)")
-            }
+        // Update cell appearance (efficiently)
+       if let currentCell = collectionView.cellForItem(at: indexPath) as? ColorCell {
+            currentCell.configure(color: selectedColor, isSelected: true)
+        }
+        if let prevPath = previousIndexPath, prevPath != indexPath,
+           prevPath.item < availableColorOptions.count, // Bounds check for prev path
+           let previousCell = collectionView.cellForItem(at: prevPath) as? ColorCell {
+            let previousColor = availableColorOptions[prevPath.item]
+            previousCell.configure(color: previousColor, isSelected: false)
         }
 
-         // Efficiently update cell appearance (selected/deselected states)
-         // Update the just-tapped cell
-         if let currentCell = collectionView.cellForItem(at: indexPath) as? ColorCell {
-             currentCell.configure(color: selectedColor, isSelected: true)
-         }
-         // Update the previously selected cell (if it exists and is different)
-         if let prevPath = previousIndexPath, prevPath != indexPath, let previousCell = collectionView.cellForItem(at: prevPath) as? ColorCell {
-             let previousColor = colorOptions[prevPath.item]
-             previousCell.configure(color: previousColor, isSelected: false)
-         }
-
-         // Scroll the newly selected item to the center
-         scrollToSelected(collectionView: collectionView, index: indexPath.item)
-    }
+        scrollToSelected(collectionView: collectionView, index: indexPath.item)
+   }
 
     // --- NEW: Helper to scroll collection view ---
     func scrollToSelected(collectionView: UICollectionView, index: Int) {
@@ -1011,7 +1178,9 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
 
     // MARK: - Cleanup (Original)
     deinit {
-        stopAutoHammering() // Ensure timer is invalidated
+        stopAutoHammering()
+        // --- NEW: Remove Observer ---
+        NotificationCenter.default.removeObserver(self)
         print("GameViewController deinitialized")
     }
 

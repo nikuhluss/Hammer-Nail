@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		33AE29772DA7995500419CDF /* Shop.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 33AE29762DA7995500419CDF /* Shop.storekit */; };
+		33AE29792DA79D9200419CDF /* StoreKitTestCertificate.cer in Resources */ = {isa = PBXBuildFile; fileRef = 33AE29782DA79D9200419CDF /* StoreKitTestCertificate.cer */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		33AE29552DA1F61100419CDF /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +32,8 @@
 		33AE293F2DA1F60F00419CDF /* Hammer + Nail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Hammer + Nail.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		33AE29542DA1F61100419CDF /* Hammer + NailTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Hammer + NailTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		33AE295E2DA1F61100419CDF /* Hammer + NailUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Hammer + NailUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		33AE29762DA7995500419CDF /* Shop.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Shop.storekit; sourceTree = "<group>"; };
+		33AE29782DA79D9200419CDF /* StoreKitTestCertificate.cer */ = {isa = PBXFileReference; lastKnownFileType = file; path = StoreKitTestCertificate.cer; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +82,8 @@
 		33AE29362DA1F60F00419CDF = {
 			isa = PBXGroup;
 			children = (
+				33AE29762DA7995500419CDF /* Shop.storekit */,
+				33AE29782DA79D9200419CDF /* StoreKitTestCertificate.cer */,
 				33AE29412DA1F60F00419CDF /* Hammer + Nail */,
 				33AE29572DA1F61100419CDF /* Hammer + NailTests */,
 				33AE29612DA1F61100419CDF /* Hammer + NailUITests */,
@@ -212,6 +221,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				33AE29772DA7995500419CDF /* Shop.storekit in Resources */,
+				33AE29792DA79D9200419CDF /* StoreKitTestCertificate.cer in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
