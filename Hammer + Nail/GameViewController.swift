@@ -1,12 +1,12 @@
 import UIKit
 import SceneKit
+import GameKit
 
 // MARK: - Simple Color Cell for CollectionView
-// (Keep this class as it was in your original code)
 class ColorCell: UICollectionViewCell {
     static let identifier = "ColorCell"
     let colorView = UIView()
-
+    
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.addSubview(colorView)
@@ -33,7 +33,241 @@ class ColorCell: UICollectionViewCell {
     }
 }
 
-class GameViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout {
+class GameViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout, GKGameCenterControllerDelegate  {
+    
+    var isGameCenterEnabled: Bool = false
+    var localPlayer = GKLocalPlayer.local
+    let leaderboardID = "com.app.Hammer---Nail.highscores"
+    
+    
+    func gameCenterViewControllerDidFinish(_ gameCenterViewController: GKGameCenterViewController) {
+        gameCenterViewController.dismiss(animated: true, completion: nil)
+    }
+    
+    @objc func menuOptionSelected(_ sender: UIButton) {
+        toggleMenu() // Close the menu first
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Corresponds to ["Leaderboard", "Customize", "Shop", "Settings", "Share"] order
+            switch sender.tag {
+            case 0: // Leaderboard
+                print("Leaderboard selected")
+                self.showLeaderboard() // Call the new function
+            case 1: // Customize
+                self.updateAvailableColors()
+                self.presentCustomizationScreen()
+            case 2: // Shop
+                print("Attempting to present shop")
+                // ... (Keep existing shop presentation logic) ...
+                if self.storeManager.availableProducts.isEmpty {
+                    print("No products available - attempting to fetch")
+                    let loadingAlert = UIAlertController(title: "Loading Shop", message: nil, preferredStyle: .alert)
+                    self.present(loadingAlert, animated: true)
+
+                    Task {
+                        await self.storeManager.requestProducts()
+
+                        await MainActor.run {
+                            loadingAlert.dismiss(animated: true) {
+                                if self.storeManager.availableProducts.isEmpty {
+                                    print("Still no products after fetch attempt")
+                                    self.showSimpleAlert(title: "Shop Unavailable",
+                                                      message: "Please check your internet connection and try again.")
+                                } else {
+                                    print("Products loaded successfully, presenting shop")
+                                    self.presentShop(manager: self.storeManager)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    print("Products already available, presenting shop")
+                    self.presentShop(manager: self.storeManager)
+                }
+
+            case 3: // Settings (moved index)
+                print("Settings selected")
+            case 4: // Share (moved index)
+                print("Share selected")
+            default:
+                break
+            }
+        }
+    }
+    
+    func setupMenuButton() {
+        // Use original menu button and view setup, including overlay
+        menuButton = UIButton(type: .system)
+        menuButton.setImage(UIImage(systemName: "line.horizontal.3"), for: .normal)
+        menuButton.tintColor = .black
+        menuButton.addTarget(self, action: #selector(toggleMenu), for: .touchUpInside)
+        menuButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(menuButton)
+
+        overlayView = UIView()
+        overlayView.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        overlayView.isHidden = true
+        overlayView.alpha = 0
+        overlayView.translatesAutoresizingMaskIntoConstraints = false
+        let tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(overlayTapped))
+        overlayView.addGestureRecognizer(tapRecognizer)
+        view.addSubview(overlayView)
+
+        menuView = UIView()
+        menuView.backgroundColor = UIColor(white: 0.95, alpha: 1)
+        menuView.layer.cornerRadius = 15
+        menuView.layer.shadowOpacity = 0.3
+        menuView.layer.shadowRadius = 10
+        menuView.layer.shadowOffset = CGSize(width: 0, height: 5)
+        menuView.isHidden = true
+        menuView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(menuView)
+
+        let menuStackView = UIStackView()
+        menuStackView.axis = .vertical
+        menuStackView.alignment = .fill
+        menuStackView.distribution = .equalSpacing
+        menuStackView.spacing = 0
+        menuStackView.translatesAutoresizingMaskIntoConstraints = false
+        menuView.addSubview(menuStackView)
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Menu"
+        titleLabel.font = UIFont.systemFont(ofSize: 20, weight: .bold)
+        titleLabel.textAlignment = .center
+        menuStackView.addArrangedSubview(titleLabel)
+        menuStackView.setCustomSpacing(15, after: titleLabel)
+
+        // --- NEW: Add "Leaderboard" to options ---
+        // Original options: ["Settings", "Customize", "Shop", "Share"]
+        let options = ["Leaderboard", "Customize", "Shop", "Settings", "Share"] // Added Leaderboard at the start
+
+        for (index, option) in options.enumerated() {
+            let button = UIButton(type: .system)
+            button.setTitle(option, for: .normal)
+            button.setTitleColor(.black, for: .normal)
+            button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+            button.contentHorizontalAlignment = .center
+            button.tag = index // Tag matches array index
+            button.addTarget(self, action: #selector(menuOptionSelected(_:)), for: .touchUpInside)
+
+            menuStackView.addArrangedSubview(button)
+            button.heightAnchor.constraint(equalToConstant: 50).isActive = true
+
+            if index < options.count - 1 {
+                let separator = createSeparator()
+                menuStackView.addArrangedSubview(separator)
+                menuStackView.setCustomSpacing(0, after: button)
+                menuStackView.setCustomSpacing(0, after: separator)
+            }
+        }
+
+        let closeSeparator = createSeparator()
+        menuStackView.addArrangedSubview(closeSeparator)
+        menuStackView.setCustomSpacing(10, after: closeSeparator)
+
+        let closeButton = UIButton(type: .system)
+        closeButton.setTitle("Close", for: .normal)
+        closeButton.setTitleColor(.systemRed, for: .normal)
+        closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        closeButton.addTarget(self, action: #selector(toggleMenu), for: .touchUpInside)
+        menuStackView.addArrangedSubview(closeButton)
+        closeButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
+
+        // --- Constraints (Keep Original + Add StackView Constraints) ---
+        NSLayoutConstraint.activate([
+            // ... (Keep existing overlay, menuButton, menuView constraints) ...
+            overlayView.topAnchor.constraint(equalTo: view.topAnchor),
+            overlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            overlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            overlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            menuButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            menuButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            menuButton.widthAnchor.constraint(equalToConstant: 44),
+            menuButton.heightAnchor.constraint(equalToConstant: 44),
+            menuView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            menuView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            menuView.widthAnchor.constraint(equalToConstant: 280),
+
+            // Stack View inside Menu View
+            menuStackView.topAnchor.constraint(equalTo: menuView.topAnchor, constant: 20),
+            menuStackView.bottomAnchor.constraint(equalTo: menuView.bottomAnchor, constant: -20),
+            menuStackView.leadingAnchor.constraint(equalTo: menuView.leadingAnchor, constant: 16),
+            menuStackView.trailingAnchor.constraint(equalTo: menuView.trailingAnchor, constant: -16),
+        ])
+    }
+    
+    func hammerAction() {
+        guard let pivot = hammerNode.childNodes.first, pivot.action(forKey: hammerAnimationKey) == nil else { return }
+
+        nailsHammered += 1
+        animateHammerSwing()
+
+        // --- NEW: Submit score to Game Center ---
+        if isGameCenterEnabled {
+            submitScore(nailsHammered)
+        }
+    }
+    
+    @objc func hammerButtonTapped() {
+        guard !isAutoHammering else { return }
+        hammerAction()
+    }
+
+    
+    func authenticateLocalPlayer() {
+        localPlayer.authenticateHandler = { [weak self] viewController, error in
+            guard let self = self else { return }
+
+            if let vc = viewController {
+                // Present the Game Center login view controller
+                self.present(vc, animated: true, completion: nil)
+                return
+            }
+
+            if let err = error {
+                self.isGameCenterEnabled = false
+                print("Game Center Authentication Error: \(err.localizedDescription)")
+                // Optionally show an alert or disable GC features
+                return
+            }
+
+            // Player is authenticated
+            self.isGameCenterEnabled = true
+            print("Game Center Enabled: \(self.isGameCenterEnabled)")
+            print("Player authenticated: \(self.localPlayer.isAuthenticated), Alias: \(self.localPlayer.alias)")
+
+            // Optional: Load initial leaderboard score or other GC data here
+        }
+    }
+    
+    func submitScore(_ score: Int) {
+        guard isGameCenterEnabled else {
+            print("Cannot submit score: Game Center not enabled.")
+            return
+        }
+        GKLeaderboard.submitScore(score, context: 0, player: localPlayer, leaderboardIDs: [leaderboardID]) { error in
+            if let err = error {
+                print("Error submitting score: \(err.localizedDescription)")
+            } else {
+                 print("Score \(score) submitted successfully to leaderboard \(self.leaderboardID).")
+            }
+        }
+    }
+    
+    func showLeaderboard() {
+        guard isGameCenterEnabled else {
+            print("Cannot show leaderboard: Game Center not enabled.")
+            // Optionally show an alert asking the user to sign in via the Game Center app
+            showSimpleAlert(title: "Game Center Unavailable", message: "Please sign in to Game Center via the Settings app to view leaderboards.")
+            return
+        }
+
+        let gcVC = GKGameCenterViewController(leaderboardID: leaderboardID, playerScope: .global, timeScope: .allTime)
+        gcVC.gameCenterDelegate = self // Set the delegate
+        present(gcVC, animated: true, completion: nil)
+    }
+
 
     // MARK: - Properties (Original + New Customization)
 
@@ -52,23 +286,22 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
         }
     }
 
-    // UI Elements (Original)
+    // UI Elements
     var nailsLabel: UILabel!
     var hammerButton: UIButton!
     var autoHammerTimer: Timer?
     var isAutoHammering = false
 
-    // Menu Elements (Original)
+    // Menu Elements
     var menuButton: UIButton!
     var menuView: UIView!
     var isMenuOpen = false
-    var overlayView: UIView! // Keep the overlay view
+    var overlayView: UIView!
 
-    // Animation Keys (Original)
+    // Animation Keys
     let hammerAnimationKey = "hammerSwingAnimation"
     let nailAnimationKey = "nailBounceAnimation"
 
-    // --- NEW: Customization Properties ---
     var customizationContainerView: UIView! // Main view for customization UI
     var hammerPreviewView: SCNView!        // SCNView for the hammer preview
     var previewScene: SCNScene!            // Scene specifically for the preview
@@ -78,7 +311,7 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
     var headColorCollectionView: UICollectionView!
     var handleColorCollectionView: UICollectionView!
 
-    // Color options (You can customize these colors)
+    // Color options
     var colorOptions: [UIColor] = [
         .darkGray, .brown, .red, .blue, .green, .yellow, .purple, .orange, .black, .white, .systemTeal, .magenta
     ]
@@ -132,6 +365,8 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
 
         // 6. Setup the NEW customization UI structure (initially hidden)
         setupCustomizationUI() // This will now use availableColorOptions
+        
+        authenticateLocalPlayer()
 
         // --- NEW: Request products after setup ---
          // Perform initial check after a short delay to allow StoreManager init
@@ -231,115 +466,6 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
             hammerButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             hammerButton.widthAnchor.constraint(equalToConstant: 220),
             hammerButton.heightAnchor.constraint(equalToConstant: 65)
-        ])
-    }
-
-    func setupMenuButton() {
-        // Use original menu button and view setup, including overlay
-        menuButton = UIButton(type: .system)
-        menuButton.setImage(UIImage(systemName: "line.horizontal.3"), for: .normal)
-        menuButton.tintColor = .black
-        menuButton.addTarget(self, action: #selector(toggleMenu), for: .touchUpInside)
-        menuButton.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(menuButton)
-
-        overlayView = UIView()
-        overlayView.backgroundColor = UIColor.black.withAlphaComponent(0.3)
-        overlayView.isHidden = true
-        overlayView.alpha = 0
-        overlayView.translatesAutoresizingMaskIntoConstraints = false
-        // *** NEW: Add tap recognizer for overlay to close things ***
-        let tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(overlayTapped))
-        overlayView.addGestureRecognizer(tapRecognizer)
-        view.addSubview(overlayView) // Ensure overlay is added
-
-        menuView = UIView()
-        menuView.backgroundColor = UIColor(white: 0.95, alpha: 1)
-        menuView.layer.cornerRadius = 15
-        menuView.layer.shadowOpacity = 0.3
-        menuView.layer.shadowRadius = 10
-        menuView.layer.shadowOffset = CGSize(width: 0, height: 5)
-        menuView.isHidden = true
-        menuView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(menuView) // Ensure menu view is added
-
-        // --- Menu Content (Using Stack View for simplicity) ---
-        let menuStackView = UIStackView()
-        menuStackView.axis = .vertical
-        menuStackView.alignment = .fill
-        menuStackView.distribution = .equalSpacing
-        menuStackView.spacing = 0 // Separators handle spacing
-        menuStackView.translatesAutoresizingMaskIntoConstraints = false
-        menuView.addSubview(menuStackView)
-
-        // Title Label (Optional)
-        let titleLabel = UILabel()
-        titleLabel.text = "Menu"
-        titleLabel.font = UIFont.systemFont(ofSize: 20, weight: .bold)
-        titleLabel.textAlignment = .center
-        menuStackView.addArrangedSubview(titleLabel)
-        menuStackView.setCustomSpacing(15, after: titleLabel)
-
-        // *** IMPORTANT: Ensure "Customize" is tag 1 if using original options order ***
-        let options = ["Settings", "Customize", "Shop", "Share"]
-        for (index, option) in options.enumerated() {
-            let button = UIButton(type: .system)
-            button.setTitle(option, for: .normal)
-            button.setTitleColor(.black, for: .normal)
-            button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .medium)
-            button.contentHorizontalAlignment = .center
-            button.tag = index // Tag matches array index
-            button.addTarget(self, action: #selector(menuOptionSelected(_:)), for: .touchUpInside)
-
-            menuStackView.addArrangedSubview(button)
-            button.heightAnchor.constraint(equalToConstant: 50).isActive = true
-
-            if index < options.count - 1 {
-                let separator = createSeparator()
-                menuStackView.addArrangedSubview(separator)
-                menuStackView.setCustomSpacing(0, after: button)
-                menuStackView.setCustomSpacing(0, after: separator)
-            }
-        }
-
-        // Separator before Close button
-        let closeSeparator = createSeparator()
-        menuStackView.addArrangedSubview(closeSeparator)
-        menuStackView.setCustomSpacing(10, after: closeSeparator)
-
-        // Close Button
-        let closeButton = UIButton(type: .system)
-        closeButton.setTitle("Close", for: .normal)
-        closeButton.setTitleColor(.systemRed, for: .normal)
-        closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
-        closeButton.addTarget(self, action: #selector(toggleMenu), for: .touchUpInside)
-        menuStackView.addArrangedSubview(closeButton)
-        closeButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
-
-        // --- Constraints (Keep Original + Add StackView Constraints) ---
-        NSLayoutConstraint.activate([
-            // Overlay covers entire view
-            overlayView.topAnchor.constraint(equalTo: view.topAnchor),
-            overlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            overlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            overlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-
-            // Menu Button (Original)
-            menuButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            menuButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            menuButton.widthAnchor.constraint(equalToConstant: 44),
-            menuButton.heightAnchor.constraint(equalToConstant: 44),
-
-            // Menu View (Original Size/Position)
-            menuView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            menuView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            menuView.widthAnchor.constraint(equalToConstant: 280),
-
-            // Stack View inside Menu View
-            menuStackView.topAnchor.constraint(equalTo: menuView.topAnchor, constant: 20),
-            menuStackView.bottomAnchor.constraint(equalTo: menuView.bottomAnchor, constant: -20),
-            menuStackView.leadingAnchor.constraint(equalTo: menuView.leadingAnchor, constant: 16),
-            menuStackView.trailingAnchor.constraint(equalTo: menuView.trailingAnchor, constant: -16),
         ])
     }
 
@@ -609,23 +735,7 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
     
 
 
-    // MARK: - Button Actions & Game Logic (Original)
-
-    @objc func hammerButtonTapped() {
-        // Original action, maybe prevent during auto-hammer
-        guard !isAutoHammering else { return }
-        hammerAction()
-    }
-
-    func hammerAction() {
-        // Original action logic
-        // Prevent re-triggering animation if already running
-        guard let pivot = hammerNode.childNodes.first, pivot.action(forKey: hammerAnimationKey) == nil else { return }
-        
-        nailsHammered += 1
-        animateHammerSwing()
-        //animateNailHit() // Call the original nail animation
-    }
+    // MARK: - Button Actions & Game Logic
 
     @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
         // Original long press logic
@@ -704,59 +814,6 @@ class GameViewController: UIViewController, UICollectionViewDataSource, UICollec
          if customizationContainerView != nil && !customizationContainerView.isHidden {
              hideCustomizationScreen(animated: false) // Hide immediately
          }
-    }
-
-    // --- MODIFIED: Menu Option Handling ---
-    @objc func menuOptionSelected(_ sender: UIButton) {
-        toggleMenu() // Close the menu first
-
-        // Delay action slightly
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-             // Corresponds to ["Settings", "Customize", "Shop", "Share"] order
-            switch sender.tag {
-            case 0: // Settings
-                print("Settings selected")
-            case 1: // Customize
-                // Ensure colors are up-to-date before presenting
-                self.updateAvailableColors()
-                self.presentCustomizationScreen()
-            case 2: // Shop
-                print("Attempting to present shop")
-                print("Current available products count: \(self.storeManager.availableProducts.count)")
-                print("Current purchased IDs: \(self.storeManager.purchasedProductIDs)")
-                
-                if self.storeManager.availableProducts.isEmpty {
-                    print("No products available - attempting to fetch")
-                    let loadingAlert = UIAlertController(title: "Loading Shop", message: nil, preferredStyle: .alert)
-                    self.present(loadingAlert, animated: true)
-                    
-                    Task {
-                        await self.storeManager.requestProducts()
-                        
-                        await MainActor.run {
-                            loadingAlert.dismiss(animated: true) {
-                                if self.storeManager.availableProducts.isEmpty {
-                                    print("Still no products after fetch attempt")
-                                    self.showSimpleAlert(title: "Shop Unavailable",
-                                                      message: "Please check your internet connection and try again.")
-                                } else {
-                                    print("Products loaded successfully, presenting shop")
-                                    self.presentShop(manager: self.storeManager)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    print("Products already available, presenting shop")
-                    self.presentShop(manager: self.storeManager)
-                }
-
-            case 3: // Share
-                print("Share selected")
-            default:
-                break
-            }
-        }
     }
     
     // --- NEW: Helper to present Shop ---
